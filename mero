@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>مراقبة مواعيد القنصلية</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white p-4">
+
+  <div class="max-w-3xl mx-auto space-y-6">
+    <h1 class="text-2xl font-bold text-center">مراقبة مواعيد مركز القنصل الإلكتروني</h1>
+
+    <!-- الاشتراك بالتنبيهات -->
+    <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow">
+      <label class="block mb-2">أدخل معرف Telegram لتلقي الإشعارات:</label>
+      <input id="telegramInput" type="text" placeholder="@TelegramUsername" class="w-full p-2 rounded border mb-2" />
+      <button onclick="subscribeTelegram()" class="bg-blue-600 text-white px-4 py-2 rounded">🔔 اشترك بالتنبيهات عبر Telegram</button>
+      <p id="subscribeStatus" class="mt-2 text-sm text-green-500 hidden">✓ تم الاشتراك بنجاح!</p>
+    </div>
+
+    <!-- الحالة الأساسية -->
+    <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-2">🔍 حالة حجوزات برلين/بروكسل</h2>
+      <p id="mainStatus" class="text-lg font-bold">جارٍ التحقق...</p>
+      <a id="bookingLink" href="https://www.ecsc-expat.sy/" target="_blank" class="text-blue-600 hover:underline">زيارة مركز الحجز</a>
+      <button onclick="printAppointment()" class="mt-4 bg-indigo-600 text-white px-4 py-2 rounded">💾 حفظ/طباعة الحالة</button>
+    </div>
+
+    <!-- حالة القنصليات الأخرى -->
+    <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow">
+      <h2 class="text-xl font-semibold mb-3">📋 القنصليات الأخرى</h2>
+      <table class="w-full text-center border">
+        <thead>
+          <tr class="bg-gray-100 dark:bg-gray-700">
+            <th class="py-2 border">القنصلية</th>
+            <th class="py-2 border">الحالة</th>
+          </tr>
+        </thead>
+        <tbody id="otherStatusTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const CONSULATE_SITE = 'https://www.ecsc-expat.sy/';
+    const CONSULATES = ['برلين','بروكسل','مدريد','باريس','ستوكهولم','فيينا']; // مثال: استخرج من الموقع لاحقًا
+    let telegramId = null;
+
+    async function fetchHtml() {
+      const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(CONSULATE_SITE)}`
+      );
+      if (!res.ok) throw new Error('فشل تحميل الموقع');
+      return await res.text();
+    }
+
+    async function updateStatuses() {
+      try {
+        const html = await fetchHtml();
+
+        // حالة برلين/بروكسل
+        const berlinOk = html.includes('برلين') && html.includes('مواعيد');
+        const brusselsOk = html.includes('بروكسل') && html.includes('مواعيد');
+        const mainText = berlinOk || brusselsOk
+          ? `✅ ${berlinOk?'برلين':''}${berlinOk&&brusselsOk?' و ':''}${brusselsOk?'بروكسل':''} لديها مواعيد!`
+          : '❌ لا يوجد مواعيد حالياً في برلين/بروكسل.';
+        document.getElementById('mainStatus').textContent = mainText;
+
+        if (telegramId && (berlinOk || brusselsOk)) {
+          notifyTelegram(mainText);
+        }
+
+        // حالة القنصليات الأخرى
+        const rows = CONSULATES.filter(c => c!=='برلين'&&c!=='بروكسل')
+          .map(name => {
+            const available = html.includes(name) && html.includes('مواعيد');
+            return `<tr><td class="py-2 border">${name}</td><td class="py-2 border ${available?'text-green-600':'text-red-600'}">${available?'✅ متاح':'❌ لا يوجد'}</td></tr>`;
+          }).join('');
+        document.getElementById('otherStatusTable').innerHTML = rows;
+
+      } catch (e) {
+        document.getElementById('mainStatus').textContent = '⚠️ خطأ في التحقق.';
+        console.error(e);
+      }
+    }
+
+    function printAppointment() {
+      const content = `
+        <div style="direction: rtl; font-family: sans-serif; padding: 20px;">
+          <h1>حالة المواعيد من مركز القنصل الإلكتروني</h1>
+          <p><strong>برلين:</strong> ${document.getElementById('mainStatus').textContent.includes('برلين')?'متاح ✅':'لا يوجد ❌'}</p>
+          <p><strong>بروكسل:</strong> ${document.getElementById('mainStatus').textContent.includes('بروكسل')?'متاح ✅':'لا يوجد ❌'}</p>
+          <p><strong>الثانية:</strong> تم الطباعة في ${new Date().toLocaleString()}</p>
+        </div>`;
+      const w = window.open('', '_blank');
+      w.document.write(content);
+      w.document.close();
+      w.print();
+    }
+
+    function subscribeTelegram() {
+      const input = document.getElementById('telegramInput').value.trim();
+      if (!input.startsWith('@')) return alert('أدخل معرف Telegram صحيح يبدأ بـ @');
+      telegramId = input;
+      document.getElementById('subscribeStatus').classList.remove('hidden');
+      // يمكن هنا إرسال الاشتراك إلى backend
+    }
+
+    function notifyTelegram(text) {
+      fetch('/notify', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ telegramId, message: text })
+      }).catch(console.error);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      updateStatuses();
+      setInterval(updateStatuses, 120000);
+    });
+  </script>
+</body>
+</html>
